@@ -475,6 +475,10 @@ class Filter(JailThread):
 		# Generate the failure attempt for the IP:
 		unixTime = MyTime.time()
 		ticket = FailTicket(ip, unixTime, matches=matches)
+		# check it shall be ignored:
+		if self._inIgnoreIPList(ip, ticket):
+			return 0
+		# add attempt (found failure):
 		logSys.info(
 			"[%s] Attempt %s - %s", self.jailName, ip, datetime.datetime.fromtimestamp(unixTime).strftime("%Y-%m-%d %H:%M:%S")
 		)
@@ -485,7 +489,6 @@ class Filter(JailThread):
 		# report to observer - failure was found, for possibly increasing of it retry counter (asynchronous)
 		if Observers.Main is not None:
 			Observers.Main.add('failureFound', self.jail, ticket)
-
 		return 1
 
 	##
@@ -1111,8 +1114,8 @@ class FileFilter(Filter):
 	def getFailures(self, filename, inOperation=None):
 		if self.idle: return False
 		log = self.getLog(filename)
-		if log is None:
-			logSys.error("Unable to get failures in %s", filename)
+		if log is None and self.active:
+			logSys.log(logging.MSG, "Unable to get failures in %s", filename)
 			return False
 		# We should always close log (file), otherwise may be locked (log-rotate, etc.)
 		try:
@@ -1288,24 +1291,15 @@ class FileFilter(Filter):
 				break
 			db.updateLog(self.jail, log)
 			
-	def onStop(self):
+	def afterStop(self):
 		"""Stop monitoring of log-file(s). Invoked after run method.
 		"""
-		# ensure positions of pending logs are up-to-date:
-		if self._pendDBUpdates and self.jail.database:
-			self._updateDBPending()
 		# stop files monitoring:
 		for path in list(self.__logs.keys()):
 			self.delLogPath(path)
-
-	def stop(self):
-		"""Stop filter
-		"""
-		# normally onStop will be called automatically in thread after its run ends, 
-		# but for backwards compatibilities we'll invoke it in caller of stop method.
-		self.onStop()
-		# stop thread:
-		super(Filter, self).stop()
+		# ensure positions of pending logs are up-to-date:
+		if self._pendDBUpdates and self.jail.database:
+			self._updateDBPending()
 
 ##
 # FileContainer class.
